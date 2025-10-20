@@ -1,0 +1,8 @@
+{
+  "app_name": "Project Estimator",
+  "product_name": "Project Estimator",
+  "version": "1.0.0",
+  "description": "Ferramenta interna para estimativas de tempo de projeto",
+  "organization": "Igor Lopes",
+  "icon": "assets/icon.ico"
+}
