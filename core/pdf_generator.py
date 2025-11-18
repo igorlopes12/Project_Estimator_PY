@@ -2,13 +2,14 @@
 Module: pdf_generator
 Function: Generates a professional project estimate PDF using the FPDF library.
 
-Expected structure of the `project` dictionary (English keys only):
+Expected structure of the `project` dictionary:
 {
     'name': str,
-    'developer': str,
-    'date': str,
+    'architect': str,
+    'area': str,
+    'demand': str,
+    'purpose': str,
     'steps': [ {'name': str, 'hours': float}, ... ],
-    'total': float
 }
 
 The function returns the absolute path of the generated file.
@@ -28,6 +29,17 @@ class ProfessionalPDF(FPDF):
         # Ball Blue header background (RGB: 17/64/254)
         self.set_fill_color(17, 64, 254)
         self.rect(0, 0, 210, 40, 'F')
+
+        # Add Ball logo in the top right corner
+        try:
+            # Get logo path relative to the project root
+            logo_path = os.path.join(os.path.dirname(__file__), '..', 'BallLogo.png')
+            if os.path.exists(logo_path):
+                # Position: x=170 (top right), y=5, width=35mm, height will be auto
+                self.image(logo_path, x=170, y=5, w=35)
+        except Exception as e:
+            # If logo fails to load, continue without it
+            pass
 
         # Title in white
         self.set_text_color(255, 255, 255)
@@ -89,17 +101,18 @@ def generate_pdf(project: Dict[str, Any], destination: str = "estimate.pdf") -> 
 
     # Read required fields
     project_name = project.get('name', 'Untitled Project')
-    developer = project.get('developer', 'N/A')
-    date_str = project.get('date', 'N/A')
+    architect = project.get('architect', 'N/A')
+    area = project.get('area', 'N/A')
+    demand = project.get('demand', 'N/A')
+    purpose = project.get('purpose', 'N/A')
     steps = project.get('steps', []) or []
 
     # Calculate total
-    total = project.get('total')
-    if total is None:
-        try:
-            total = sum((s.get('hours', 0) for s in steps))
-        except (TypeError, ValueError, KeyError):
-            total = 0
+    total = 0
+    try:
+        total = sum((float(s.get('hours', 0)) for s in steps))
+    except (TypeError, ValueError, KeyError):
+        total = 0
 
     # Project Title Section in Ball Blue
     pdf.set_font('Arial', 'B', 18)
@@ -112,11 +125,40 @@ def generate_pdf(project: Dict[str, Any], destination: str = "estimate.pdf") -> 
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(8)
 
-    # Information boxes
+    # PROJECT INFORMATION SECTION
+    pdf.set_font('Arial', 'B', 12)
+    pdf.set_text_color(17, 64, 254)
+    pdf.cell(0, 8, 'PROJECT INFORMATION', 0, 1, 'L')
+    pdf.ln(2)
+
+    # Information boxes - Row 1
     current_y = pdf.get_y()
-    pdf.add_info_box('Developer', developer, 10, current_y, 90)
-    pdf.add_info_box('Date', date_str, 105, current_y, 95)
-    pdf.ln(20)
+    pdf.add_info_box('Demand ID', demand, 10, current_y, 90)
+    pdf.add_info_box('Area', area, 105, current_y, 95)
+    pdf.ln(18)
+
+    # Information boxes - Row 2
+    current_y = pdf.get_y()
+    pdf.add_info_box('Solution Architect', architect, 10, current_y, 200)
+    pdf.ln(18)
+
+    # Purpose section with full width
+    pdf.set_font('Arial', 'B', 10)
+    pdf.set_text_color(17, 64, 254)
+    pdf.cell(0, 6, 'Purpose:', 0, 1, 'L')
+
+    pdf.set_font('Arial', '', 10)
+    pdf.set_text_color(26, 26, 26)
+
+    # Purpose with light background
+    pdf.set_fill_color(245, 245, 245)
+    pdf.set_draw_color(17, 64, 254)
+    pdf.set_line_width(0.5)
+
+    # Calculate height needed for purpose text
+    purpose_text = purpose if purpose and purpose != 'N/A' else 'No purpose specified'
+    pdf.multi_cell(0, 5, purpose_text, 1, 'L', True)
+    pdf.ln(3)
 
     # Steps Section Title in Ball Blue
     pdf.set_font('Arial', 'B', 14)
@@ -127,32 +169,40 @@ def generate_pdf(project: Dict[str, Any], destination: str = "estimate.pdf") -> 
     # Table Header with Ball Blue background
     pdf.set_fill_color(17, 64, 254)
     pdf.set_text_color(255, 255, 255)
-    pdf.set_font('Arial', 'B', 11)
+    pdf.set_font('Arial', 'B', 10)
 
-    # Header row
-    pdf.cell(150, 10, 'Task Description', 1, 0, 'L', True)
+    # Header row - 3 columns: Task, Description, Hours
+    pdf.cell(50, 10, 'Task', 1, 0, 'L', True)
+    pdf.cell(80, 10, 'Description', 1, 0, 'L', True)
     pdf.cell(40, 10, 'Hours', 1, 1, 'C', True)
 
     # Table Body with Charcoal text
     pdf.set_text_color(26, 26, 26)
-    pdf.set_font('Arial', '', 10)
+    pdf.set_font('Arial', '', 9)
 
     if not steps:
         pdf.set_fill_color(250, 250, 250)
-        pdf.cell(190, 10, 'No tasks recorded for this project.', 1, 1, 'C', True)
+        pdf.cell(170, 10, 'No tasks recorded for this project.', 1, 1, 'C', True)
     else:
         # Alternating row colors for better readability
         fill = False
         for step in steps:
             step_name = step.get('name', 'Unnamed task')
-            hours = step.get('hours', 0)
+            step_description = step.get('description', '')
+            hours = float(step.get('hours', 0)) if step.get('hours') else 0
 
             if fill:
                 pdf.set_fill_color(245, 245, 245)  # Light grey
             else:
                 pdf.set_fill_color(255, 255, 255)  # White
 
-            pdf.cell(150, 8, step_name, 1, 0, 'L', True)
+            # Use a simple approach: single-line cells for now
+            # If description is too long, truncate it
+            max_desc_len = 35
+            desc_display = step_description[:max_desc_len] if step_description else '-'
+
+            pdf.cell(50, 8, step_name[:25], 1, 0, 'L', True)
+            pdf.cell(80, 8, desc_display, 1, 0, 'L', True)
             pdf.cell(40, 8, f'{hours:.1f}h', 1, 1, 'C', True)
             fill = not fill
 
@@ -162,8 +212,9 @@ def generate_pdf(project: Dict[str, Any], destination: str = "estimate.pdf") -> 
     pdf.set_text_color(255, 255, 255)
     pdf.set_font('Arial', 'B', 13)
 
-    pdf.cell(150, 12, 'TOTAL ESTIMATED HOURS', 1, 0, 'R', True)
-    pdf.cell(40, 12, f'{total:.1f}h', 1, 1, 'C', True)
+    pdf.cell(50, 12, '', 1, 0, 'R', True)  # Task column
+    pdf.cell(80, 12, 'TOTAL ESTIMATED HOURS', 1, 0, 'R', True)  # Description column
+    pdf.cell(40, 12, f'{total:.1f}h', 1, 1, 'C', True)  # Hours column
 
     # Summary box at bottom with Ball Grey text
     pdf.ln(10)

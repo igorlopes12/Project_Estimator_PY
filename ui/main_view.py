@@ -1,8 +1,7 @@
 import flet as ft
 from core.project_manager import ProjectManager
-import os
-
-TEMPLATES_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "templates.json")
+from core.helpers.dialog_utils import auto_close_dialog
+from core.helpers.template_utils import load_templates, save_templates
 
 
 def main_view(page: ft.Page, manager: ProjectManager):
@@ -10,26 +9,6 @@ def main_view(page: ft.Page, manager: ProjectManager):
     page.scroll = None  # Remove scroll da página
     page.bgcolor = ft.Colors.GREY_100
     page.padding = 10
-
-    template_manager = ProjectManager(TEMPLATES_PATH)
-
-    # ---------- Helpers ----------
-    def show_snack(msg: str):
-        page.snack_bar = ft.SnackBar(ft.Text(msg))
-        page.snack_bar.open = True
-        page.update()
-
-    def load_templates():
-        try:
-            return template_manager.load_projects()
-        except Exception:
-            return []
-
-    def save_templates(tpls):
-        try:
-            template_manager.save_projects(tpls)
-        except Exception as e:
-            show_snack(f"Error saving templates: {e}")
 
     def load_projects():
         try:
@@ -83,7 +62,7 @@ def main_view(page: ft.Page, manager: ProjectManager):
                 steps.clear()
                 steps_column.controls.clear()
                 for s in p.get("steps", []):
-                    add_step(s.get("name", ""), s.get("hours", ""))
+                    add_step(s.get("name", ""), s.get("description", ""), s.get("hours", ""))
                 update_total_hours()
                 page.update()
                 break
@@ -106,13 +85,14 @@ def main_view(page: ft.Page, manager: ProjectManager):
         total_hours_text.value = f"{total:.1f} h"
         page.update()
 
-    def add_step(name="", hours=""):
+    def add_step(name="", description="", hours=""):
         name_field = ft.TextField(value=name, hint_text="Step", expand=True, color=ft.Colors.BLACK, border_color=ft.Colors.GREY_400)
+        description_field = ft.TextField(value=description, hint_text="Description (optional)", expand=True, color=ft.Colors.BLACK, border_color=ft.Colors.GREY_400, multiline=True, min_lines=2)
         hours_field = ft.TextField(value=hours, hint_text="Hours", width=100, color=ft.Colors.BLACK, border_color=ft.Colors.GREY_400)
 
         def remove_step(e):
             steps.remove(step)
-            steps_column.controls.remove(step_row)
+            steps_column.controls.remove(step_container)
             update_total_hours()
             page.update()
 
@@ -129,9 +109,17 @@ def main_view(page: ft.Page, manager: ProjectManager):
             alignment=ft.MainAxisAlignment.START
         )
 
-        step = {"name": name_field, "hours": hours_field}
+        step_container = ft.Column(
+            [
+                step_row,
+                description_field,
+            ],
+            spacing=4
+        )
+
+        step = {"name": name_field, "description": description_field, "hours": hours_field}
         steps.append(step)
-        steps_column.controls.append(step_row)
+        steps_column.controls.append(step_container)
         hours_field.on_change = lambda e: update_total_hours()
         update_total_hours()
 
@@ -161,7 +149,21 @@ def main_view(page: ft.Page, manager: ProjectManager):
 
             # Add steps button
             def on_add_steps(e, temp=t):
-                add_step(temp["name"], temp["hours"])
+                add_step(temp["name"], temp.get("description", ""), temp["hours"])
+
+                success_add_dlg = ft.AlertDialog(
+                    modal=True,
+                    title=ft.Text("Added", color=ft.Colors.GREEN_700),
+                    content=ft.Text(f"Template '{temp['name']}' added to steps!"),
+                    actions=[
+                        ft.TextButton("OK", on_click=lambda e: page.close(success_add_dlg)),
+                    ],
+                    actions_alignment=ft.MainAxisAlignment.END,
+                )
+                page.open(success_add_dlg)  # Primeiro abre
+                page.update()  # Atualiza a página
+
+
 
             add_steps_btn = ft.IconButton(
                 icon=ft.Icons.ADD_CIRCLE,
@@ -172,17 +174,18 @@ def main_view(page: ft.Page, manager: ProjectManager):
 
             # Edit button
             def on_edit_template(e, temp=t):
-                name_input = ft.TextField(label="Template name", value=temp["name"], color=ft.Colors.BLACK)
-                hours_input = ft.TextField(label="Hours", value=temp["hours"], color=ft.Colors.BLACK)
+                name_input = ft.TextField(label="Template name", value=temp["name"], color=ft.Colors.WHITE)
+                description_input = ft.TextField(label="Description (optional)", value=temp.get("description", ""), color=ft.Colors.WHITE, multiline=True, min_lines=2)
+                hours_input = ft.TextField(label="Hours", value=temp["hours"], color=ft.Colors.WHITE)
 
                 def save_edit(ev):
                     temp["name"] = name_input.value
+                    temp["description"] = description_input.value
                     temp["hours"] = hours_input.value
                     save_templates(templates)
                     refresh_templates()
                     page.close(edit_dlg)
 
-                    # Show success dialog
                     success_edit_dlg = ft.AlertDialog(
                         modal=True,
                         title=ft.Text("Success", color=ft.Colors.GREEN_700),
@@ -192,12 +195,14 @@ def main_view(page: ft.Page, manager: ProjectManager):
                         ],
                         actions_alignment=ft.MainAxisAlignment.END,
                     )
+                    page.run_task(auto_close_dialog, page, success_edit_dlg, 0.5)
                     page.open(success_edit_dlg)
+
 
                 edit_dlg = ft.AlertDialog(
                     modal=True,
                     title=ft.Text("Edit Template"),
-                    content=ft.Column([name_input, hours_input], tight=True, spacing=10),
+                    content=ft.Column([name_input, description_input, hours_input], tight=True, spacing=10),
                     actions=[
                         ft.TextButton("Save", on_click=save_edit),
                         ft.TextButton("Cancel", on_click=lambda _: page.close(edit_dlg)),
@@ -232,6 +237,8 @@ def main_view(page: ft.Page, manager: ProjectManager):
                         actions_alignment=ft.MainAxisAlignment.END,
                     )
                     page.open(success_delete_dlg)
+                    page.update()
+                    page.run_task(auto_close_dialog, page, success_delete_dlg, 0.5)
 
                 delete_dlg = ft.AlertDialog(
                     modal=True,
@@ -270,8 +277,9 @@ def main_view(page: ft.Page, manager: ProjectManager):
         page.update()
 
     def add_template_dialog(e):
-        name_input = ft.TextField(label="Template name", color=ft.Colors.BLACK)
-        hours_input = ft.TextField(label="Hours", value="0", color=ft.Colors.BLACK)
+        name_input = ft.TextField(label="Template name", color=ft.Colors.WHITE)
+        description_input = ft.TextField(label="Description (optional)", color=ft.Colors.WHITE, multiline=True, min_lines=2)
+        hours_input = ft.TextField(label="Hours", value="0", color=ft.Colors.WHITE)
 
         def save_template(ev):
             name = name_input.value.strip()
@@ -287,7 +295,7 @@ def main_view(page: ft.Page, manager: ProjectManager):
                 )
                 page.open(error_dlg)
                 return
-            new_tpl = {"name": name, "hours": hours_input.value.strip() or "0"}
+            new_tpl = {"name": name, "description": description_input.value.strip(), "hours": hours_input.value.strip() or "0"}
             templates.append(new_tpl)
             save_templates(templates)
             refresh_templates()
@@ -304,11 +312,13 @@ def main_view(page: ft.Page, manager: ProjectManager):
                 actions_alignment=ft.MainAxisAlignment.END,
             )
             page.open(success_create_dlg)
+            page.update()
+            page.run_task(auto_close_dialog, page, success_create_dlg, 0.5)
 
         dlg = ft.AlertDialog(
             modal=True,
             title=ft.Text("New Template"),
-            content=ft.Column([name_input, hours_input], tight=True, spacing=10),
+            content=ft.Column([name_input, description_input, hours_input], tight=True, spacing=10),
             actions=[
                 ft.TextButton("Save", on_click=save_template),
                 ft.TextButton("Cancel", on_click=lambda _: page.close(dlg)),
@@ -340,7 +350,7 @@ def main_view(page: ft.Page, manager: ProjectManager):
             "area": area.value,
             "demand": demand.value,
             "purpose": purpose.value,
-            "steps": [{"name": s["name"].value, "hours": s["hours"].value} for s in steps],
+            "steps": [{"name": s["name"].value, "description": s["description"].value, "hours": s["hours"].value} for s in steps],
         }
 
         existing = next((p for p in projects if p["name"] == project_data["name"]), None)
@@ -365,18 +375,101 @@ def main_view(page: ft.Page, manager: ProjectManager):
         )
         page.open(success_dlg)
 
+    # FilePicker para salvar PDF
+    def on_save_pdf_result(e: ft.FilePickerResultEvent):
+        if not e.path:
+            # Usuário cancelou
+            return
+
+        try:
+            # Importar o gerador de PDF
+            from core.pdf_generator import generate_pdf as pdf_gen
+            from datetime import datetime
+
+            # Calcular total de horas
+            total = 0.0
+            for s in steps:
+                try:
+                    h = float(s["hours"].value or 0)
+                except Exception:
+                    h = 0.0
+                total += h
+
+            # Preparar os dados do projeto
+            project_data = {
+                "name": project_name.value,
+                "developer": architect.value or "N/A",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "steps": [{"name": s["name"].value, "description": s["description"].value, "hours": float(s["hours"].value or 0)} for s in steps],
+                "total": total,
+            }
+
+            # Gerar o PDF no caminho escolhido
+            pdf_path = pdf_gen(project_data, e.path)
+
+            # Mostrar diálogo de sucesso
+            success_dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Success", color=ft.Colors.GREEN_700),
+                content=ft.Text(f"PDF generated successfully!\n\nSaved at:\n{pdf_path}"),
+                actions=[
+                    ft.TextButton("OK", on_click=lambda e: page.close(success_dlg)),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.open(success_dlg)
+
+        except Exception as ex:
+            # Mostrar diálogo de erro
+            error_dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Error"),
+                content=ft.Text(f"Failed to generate PDF:\n\n{str(ex)}"),
+                actions=[
+                    ft.TextButton("OK", on_click=lambda e: page.close(error_dlg)),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.open(error_dlg)
+
+    save_pdf_dialog = ft.FilePicker(on_result=on_save_pdf_result)
+    page.overlay.append(save_pdf_dialog)
+
     def generate_pdf(e):
-        # Show info dialog for PDF generation
-        pdf_dlg = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("PDF Generation"),
-            content=ft.Text("PDF generation feature is not implemented yet."),
-            actions=[
-                ft.TextButton("OK", on_click=lambda e: page.close(pdf_dlg)),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
+        # Validar se há um projeto para gerar
+        if not project_name.value:
+            error_dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Error"),
+                content=ft.Text("Please enter a project name before generating PDF!"),
+                actions=[
+                    ft.TextButton("OK", on_click=lambda e: page.close(error_dlg)),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.open(error_dlg)
+            return
+
+        if not steps:
+            error_dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Error"),
+                content=ft.Text("Please add at least one step before generating PDF!"),
+                actions=[
+                    ft.TextButton("OK", on_click=lambda e: page.close(error_dlg)),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.open(error_dlg)
+            return
+
+        # Abrir diálogo para salvar arquivo
+        pdf_filename = f"{project_name.value.replace(' ', '_')}_estimate.pdf"
+        save_pdf_dialog.save_file(
+            file_name=pdf_filename,
+            allowed_extensions=["pdf"],
+            dialog_title="Save PDF As"
         )
-        page.open(pdf_dlg)
 
     save_btn = ft.ElevatedButton(
         "Save",
@@ -403,23 +496,22 @@ def main_view(page: ft.Page, manager: ProjectManager):
                 ft.Row([
                     ft.Container(
                         ft.Icon(ft.Icons.BUILD_CIRCLE_ROUNDED, color=ft.Colors.WHITE, size=24),
-                        bgcolor=ft.Colors.BLUE_600,
                         padding=6,
                         border_radius=6,
+                        bgcolor=ft.Colors.BLUE_600,
                     ),
-                    ft.Text("Project Estimator", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    ft.Text("Project Estimator", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_600),
                 ], spacing=8),
                 ft.Container(expand=True),
                 ft.Container(
-                    content=ft.Text("Ball", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    content=ft.Image(src="BallLogo.png", width=62, height=40, fit=ft.ImageFit.CONTAIN),
                     padding=ft.padding.symmetric(horizontal=16, vertical=6),
-                    bgcolor=ft.Colors.BLUE_800,
                     border_radius=6,
                 ),
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         ),
-        bgcolor=ft.Colors.BLUE_700,
+
         padding=12,
         border_radius=ft.border_radius.only(top_left=8, top_right=8),
     )
@@ -545,4 +637,3 @@ def main_view(page: ft.Page, manager: ProjectManager):
 
     page.add(main_container)
     page.update()
-
