@@ -1,27 +1,33 @@
-# core/config.py
+"""core/config.py
+
+Application configuration and data paths.
+This module defines the project root, a network data folder (optional), and the
+paths for templates and projects JSON files. If the network path cannot be
+created, the module falls back to a local data directory.
+"""
+
 from pathlib import Path
-import os
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# Caminho de rede (ou None para usar diretório local)
+# Network path (set to a UNC path or None to use the local directory)
 NETWORK_PATH = r"\\Nadc1rpaorcfs01\DEV\ProjectEstimatorApp"
 
-# Define o diretório de dados
+# Define data directory depending on the configured network path
 if NETWORK_PATH:
     DATA_DIR = Path(NETWORK_PATH)
 else:
     DATA_DIR = PROJECT_ROOT / "data"
 
-# Garante que o diretório existe
+# Ensure the data directory exists; if creation fails, fall back to local data dir
 try:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 except Exception as e:
-    print(f"Aviso: Não foi possível criar diretório {DATA_DIR}: {e}")
-    # Fallback para diretório local se houver erro
+    print(f"Warning: Could not create directory {DATA_DIR}: {e}")
+    # Fallback to local data directory if there is an error
     DATA_DIR = PROJECT_ROOT / "data"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# Caminhos dos arquivos JSON
+# Paths for the JSON files
 TEMPLATES_PATH = DATA_DIR / "templates.json"
 PROJECTS_PATH = DATA_DIR / "projects.json"
