@@ -4,14 +4,18 @@ User interface for the Project Estimator application built with Flet.
 This module defines the main_view function which composes the UI and connects
 it to the ProjectManager for loading/saving projects and templates.
 """
-
+import os
 from datetime import datetime
 import flet as ft
+from dotenv import load_dotenv
 from core.project_manager import ProjectManager
 from core.helpers.dialog_utils import auto_close_dialog
 from core.helpers.template_utils import load_templates, save_templates
+from core.helpers.devops_client import DevOpsClient
+from core.helpers.ui_utils import show_snackbar
 
-
+# Load environment variables from .env file
+load_dotenv()
 
 
 def main_view(page: ft.Page, manager: ProjectManager):
@@ -257,12 +261,12 @@ def main_view(page: ft.Page, manager: ProjectManager):
         hours_input = ft.TextField(label="Hours", value="0")
 
         def save_template(ev):
-            name = name_input.value.strip()
+            name = (name_input.value or "").strip()
             if not name:
                 error_dlg = ft.AlertDialog(modal=True, title=ft.Text("Error"), content=ft.Text("Template name cannot be empty!"), actions=[ft.TextButton("OK", on_click=lambda e: page.close(error_dlg))], actions_alignment=ft.MainAxisAlignment.END)
                 page.open(error_dlg)
                 return
-            new_tpl = {"name": name, "description": description_input.value.strip(), "hours": hours_input.value.strip() or "0"}
+            new_tpl = {"name": name, "description": (description_input.value or "").strip(), "hours": (hours_input.value or "0").strip() or "0"}
             templates.append(new_tpl)
             save_templates(templates)
             refresh_templates()
@@ -278,6 +282,97 @@ def main_view(page: ft.Page, manager: ProjectManager):
     refresh_templates()
 
     # ---------- Save & PDF ----------
+
+    def on_upload_devops(e):
+        try:
+            # Validate that we have a project to upload
+            if not project_name.value:
+                show_snackbar(page, "⚠ Please save a project first before uploading to DevOps!", ft.Colors.ORANGE, 3000)
+                return
+
+            if not steps:
+                show_snackbar(page, "⚠ Please add at least one step before uploading to DevOps!", ft.Colors.ORANGE, 3000)
+                return
+
+            # Build the project data to upload
+            total = 0.0
+            for s in steps:
+                try:
+                    h = float(s["hours"].value or 0)
+                except Exception:
+                    h = 0.0
+                total += h
+
+            data = {
+                "name": project_name.value,
+                "architect": architect.value or "N/A",
+                "area": area.value or "N/A",
+                "demand": demand.value or "N/A",
+                "purpose": purpose.value or "",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "steps": [
+                    {
+                        "name": s["name"].value,
+                        "description": s["description"].value,
+                        "hours": float(s["hours"].value or 0)
+                    }
+                    for s in steps
+                ],
+                "total": total,
+            }
+
+            print(f"📤 Uploading to DevOps: {data['name']}")
+            print(f"📋 Steps count: {len(data['steps'])}")
+
+            # Create DevOps client with environment variables
+            devops_org = os.getenv("DEVOPS_ORG", "BallCorporation")
+            devops_project = os.getenv("DEVOPS_PROJECT", "Automation and Digital Adoption")
+            devops_pat = os.getenv("DEVOPS_PAT")
+
+            if not devops_pat:
+                show_snackbar(page, "❌ DevOps PAT not configured. Check your .env file.", ft.Colors.RED, 5000)
+                return
+
+            devops = DevOpsClient(
+                organization=devops_org,
+                project=devops_project,
+                pat=devops_pat
+            )
+
+            print("✅ DevOps client created successfully")
+
+            result = devops.criar_estrutura_desde_json(data)
+
+            print(f"✅ Upload successful! Epic #{result['epic']} created")
+            print(f"   Story: #{result['story']}")
+            print(f"   Tasks: {result['tasks']}")
+
+            show_snackbar(page, f"✔ Upload concluído! Epic #{result['epic']} criada.", ft.Colors.GREEN, 4000)
+
+        except AttributeError as ex:
+            error_msg = f"❌ Erro de atributo: {ex}"
+            print(error_msg)
+            print(f"   Verifique se o método export_project_to_json existe no ProjectManager")
+            show_snackbar(page, error_msg, ft.Colors.RED, 5000)
+        except ValueError as ex:
+            error_msg = f"❌ Erro de validação: {ex}"
+            print(error_msg)
+            show_snackbar(page, error_msg, ft.Colors.RED, 5000)
+        except Exception as ex:
+            error_msg = f"❌ Erro inesperado: {ex}"
+            print(f"❌ Exception during DevOps upload: {ex}")
+            import traceback
+            print(traceback.format_exc())
+            show_snackbar(page, error_msg, ft.Colors.RED, 5000)
+
+    upload_devops_btn = ft.ElevatedButton(
+        "Upload to DevOps",
+        icon=ft.Icons.CLOUD_UPLOAD,
+        bgcolor=ft.Colors.BLUE_400,
+        color=ft.Colors.WHITE,
+        on_click=on_upload_devops,
+    )
+
     def save_project(e):
         """Validate and save the current project data to storage."""
         if not project_name.value:
@@ -388,6 +483,13 @@ def main_view(page: ft.Page, manager: ProjectManager):
 
     save_btn = ft.ElevatedButton("Save", icon=ft.Icons.SAVE, bgcolor=ft.Colors.BLUE_600, color=ft.Colors.WHITE, on_click=save_project)
     pdf_btn = ft.ElevatedButton("Generate PDF", icon=ft.Icons.PICTURE_AS_PDF, bgcolor=ft.Colors.BLUE_600, color=ft.Colors.WHITE, on_click=generate_pdf)
+    devops_btn = ft.ElevatedButton(
+        "Upload to DevOps",
+        icon=ft.Icons.CLOUD_UPLOAD,
+        bgcolor=ft.Colors.BLUE_600,
+        color=ft.Colors.WHITE,
+        on_click=on_upload_devops
+    )
 
     # ---------- Layout ----------
     header = ft.Container(
@@ -461,7 +563,7 @@ def main_view(page: ft.Page, manager: ProjectManager):
         expand=True,
     )
 
-    footer = ft.Container(content=ft.Row([save_btn, pdf_btn], spacing=12, alignment=ft.MainAxisAlignment.END), padding=12, bgcolor=ft.Colors.GREY_50, border_radius=ft.border_radius.only(bottom_left=8, bottom_right=8))
+    footer = ft.Container(content=ft.Row([save_btn, pdf_btn, devops_btn], spacing=12, alignment=ft.MainAxisAlignment.END), padding=12, bgcolor=ft.Colors.GREY_50, border_radius=ft.border_radius.only(bottom_left=8, bottom_right=8))
 
     main_container = ft.Container(
         content=ft.Column([

@@ -84,3 +84,25 @@ class ProjectManager:
             except Exception as e:
                 logger.error(f"Error saving projects to {self.path}: {e}")
                 raise
+
+    def export_project_to_json(self):
+        """
+        Export the currently loaded project to JSON format for external use (e.g., DevOps upload).
+        This method returns the first project if multiple projects are loaded.
+
+        Returns:
+            A dictionary with project data suitable for DevOps export.
+        """
+        try:
+            projects = self.load_projects()
+            if not projects:
+                raise ValueError("No projects found to export")
+            
+            # Return the first project (or you could modify this logic to pick a specific one)
+            project = projects[0]
+            
+            logger.debug(f"Exporting project: {project.get('name', 'Unknown')}")
+            return project
+        except Exception as e:
+            logger.error(f"Error exporting project to JSON: {e}")
+            raise
