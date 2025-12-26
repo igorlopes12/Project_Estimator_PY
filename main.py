@@ -27,6 +27,17 @@ def main(page: ft.Page):
     page.window.min_width = 800  # Minimum window width
     page.window.min_height = 600
 
+    page.theme = ft.Theme(
+        text_theme=ft.TextTheme(
+            body_small=ft.TextStyle(color=ft.Colors.BLACK),
+            body_medium=ft.TextStyle(color=ft.Colors.BLACK),
+            body_large=ft.TextStyle(color=ft.Colors.BLACK),
+            label_small=ft.TextStyle(color=ft.Colors.BLACK),
+            label_medium=ft.TextStyle(color=ft.Colors.BLACK),
+            label_large=ft.TextStyle(color=ft.Colors.BLACK),
+        )
+    )
+
     # Obtain the project manager configured to use the network folder (or local fallback)
     manager = get_project_manager()
     main_view(page, manager)

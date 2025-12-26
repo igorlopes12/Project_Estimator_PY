@@ -107,21 +107,81 @@ def main_view(page: ft.Page, manager: ProjectManager):
         total_hours_text.value = f"{total:.1f} h"
         page.update()
 
-    def add_step(name="", description="", hours=""):
-        """Create UI controls for a step and append them to the steps column.
+    def add_step(name="", description="", hours="", step_type="Feature", parent=None):
+        name_field = ft.TextField(
+            value=name,
+            hint_text="Step",
+            expand=True,
+            color=ft.Colors.BLACK,
+            border_color=ft.Colors.GREY_400
+        )
 
-        The description is optional and may be empty.
-        """
-        name_field = ft.TextField(value=name, hint_text="Step", expand=True, color=ft.Colors.BLACK, border_color=ft.Colors.GREY_400)
-        description_field = ft.TextField(value=description, hint_text="Description (optional)", expand=True, color=ft.Colors.BLACK, border_color=ft.Colors.GREY_400, multiline=True, min_lines=2)
-        hours_field = ft.TextField(value=str(hours), hint_text="Hours", width=100, color=ft.Colors.BLACK, border_color=ft.Colors.GREY_400)
+        description_field = ft.TextField(
+            value=description,
+            hint_text="Description (optional)",
+            expand=True,
+            color=ft.Colors.BLACK,
+            border_color=ft.Colors.GREY_400,
+            multiline=True,
+            min_lines=2
+        )
+
+        hours_field = ft.TextField(
+            value=str(hours),
+            hint_text="Hours",
+            width=90,
+            color=ft.Colors.BLACK,
+            border_color=ft.Colors.GREY_400
+        )
+
+        # 🔹 Epic removido da UI
+        type_dropdown = ft.Dropdown(
+            width=140,
+            value=step_type,
+            options=[
+                ft.dropdown.Option("Feature"),
+                ft.dropdown.Option("User Story"),
+                ft.dropdown.Option("Task"),
+            ]
+        )
+
+        parent_dropdown = ft.Dropdown(
+            width=200,
+            hint_text="Parent"
+        )
+
+        step = {
+            "name": name_field,
+            "description": description_field,
+            "hours": hours_field,
+            "type": type_dropdown,
+            "parent": parent_dropdown,
+            "id": None
+        }
+
+        def refresh_parent_options():
+            options = []
+
+            for s in steps:
+                if s is step:
+                    continue
+
+                stype = s["type"].value
+                ctype = type_dropdown.value
+
+                if ctype == "User Story" and stype == "Feature":
+                    options.append(ft.dropdown.Option(s["name"].value))
+                elif ctype == "Task" and stype == "User Story":
+                    options.append(ft.dropdown.Option(s["name"].value))
+
+            parent_dropdown.options = options
+            parent_dropdown.value = None
+
+        type_dropdown.on_change = lambda e: (refresh_parent_options(), page.update())
 
         def remove_step(e):
-            try:
-                steps.remove(step)
-                steps_column.controls.remove(step_container)
-            except ValueError:
-                pass
+            steps.remove(step)
+            steps_column.controls.remove(step_container)
             update_total_hours()
             page.update()
 
@@ -133,23 +193,26 @@ def main_view(page: ft.Page, manager: ProjectManager):
         )
 
         step_row = ft.Row(
-            [name_field, hours_field, remove_btn],
-            spacing=8,
-            alignment=ft.MainAxisAlignment.START
+            [
+                name_field,
+                type_dropdown,
+                parent_dropdown,
+                hours_field,
+                remove_btn
+            ],
+            spacing=8
         )
 
         step_container = ft.Column(
-            [
-                step_row,
-                description_field,
-            ],
+            [step_row, description_field],
             spacing=4
         )
 
-        step = {"name": name_field, "description": description_field, "hours": hours_field}
         steps.append(step)
         steps_column.controls.append(step_container)
+
         hours_field.on_change = lambda e: update_total_hours()
+        refresh_parent_options()
         update_total_hours()
 
     def on_add_step(e):
@@ -314,10 +377,13 @@ def main_view(page: ft.Page, manager: ProjectManager):
                     {
                         "name": s["name"].value,
                         "description": s["description"].value,
-                        "hours": float(s["hours"].value or 0)
+                        "hours": float(s["hours"].value or 0),
+                        "type": s["type"].value,
+                        "parent": s["parent"].value
                     }
                     for s in steps
                 ],
+
                 "total": total,
             }
 
@@ -344,8 +410,9 @@ def main_view(page: ft.Page, manager: ProjectManager):
             result = devops.criar_estrutura_desde_json(data)
 
             print(f"✅ Upload successful! Epic #{result['epic']} created")
-            print(f"   Story: #{result['story']}")
-            print(f"   Tasks: {result['tasks']}")
+            print("📌 Work Items created:")
+            for name, wid in result["items"].items():
+                print(f"   {name}: #{wid}")
 
             show_snackbar(page, f"✔ Upload concluído! Epic #{result['epic']} criada.", ft.Colors.GREEN, 4000)
 
