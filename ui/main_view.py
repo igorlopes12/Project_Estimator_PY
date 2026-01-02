@@ -17,6 +17,35 @@ from core.helpers.ui_utils import show_snackbar
 # Load environment variables from .env file
 load_dotenv()
 
+# ---------- Dialog theme helpers ----------
+
+DIALOG_BG = ft.Colors.GREY_900
+DIALOG_TEXT = ft.Colors.WHITE
+DIALOG_BORDER = ft.Colors.GREY_400
+
+
+def dialog_text(value, **kwargs):
+    return ft.Text(value, color=DIALOG_TEXT, **kwargs)
+
+
+def dialog_textfield(**kwargs):
+    return ft.TextField(
+        color=DIALOG_TEXT,
+        border_color=DIALOG_BORDER,
+        label_style=ft.TextStyle(color=DIALOG_TEXT),
+        text_style=ft.TextStyle(color=DIALOG_TEXT),
+        cursor_color=DIALOG_TEXT,
+        **kwargs
+    )
+
+
+def dialog_button(label, on_click):
+    return ft.TextButton(
+        label,
+        style=ft.ButtonStyle(color=DIALOG_TEXT),
+        on_click=on_click
+    )
+
 
 def main_view(page: ft.Page, manager: ProjectManager):
     """Build and attach the main application UI to the given Flet page.
@@ -94,6 +123,31 @@ def main_view(page: ft.Page, manager: ProjectManager):
     steps_column = ft.Column(spacing=8)
     total_hours_text = ft.Text("0.0 h", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK)
 
+    def auto_save_step_as_template(name, description, hours):
+        name = (name or "").strip()
+        if not name:
+            return
+
+        description = (description or "").strip()
+        hours = (hours or "0").strip() or "0"
+
+        for tpl in templates:
+            if tpl["name"].lower() == name.lower():
+                tpl["description"] = description
+                tpl["hours"] = hours
+                save_templates(templates)
+                refresh_templates()
+                return
+
+        templates.append({
+            "name": name,
+            "description": description,
+            "hours": hours
+        })
+
+        save_templates(templates)
+        refresh_templates()
+
     def update_total_hours():
         """Recalculate the total hours from the steps and update the UI."""
         total = 0.0
@@ -108,6 +162,17 @@ def main_view(page: ft.Page, manager: ProjectManager):
         page.update()
 
     def add_step(name="", description="", hours="", step_type="Feature", parent=None):
+        """Add a new step (task/feature/user story) to the project.
+
+        Each step can have:
+        - name: The task/feature name
+        - description: Optional detailed description of the step
+        - hours: Estimated hours for completion
+        - step_type: Type of work item (Feature, User Story, Task)
+        - parent: Parent task reference for hierarchical organization
+
+        Steps are auto-saved as templates when the user leaves a field.
+        """
         name_field = ft.TextField(
             value=name,
             hint_text="Step",
@@ -133,6 +198,17 @@ def main_view(page: ft.Page, manager: ProjectManager):
             color=ft.Colors.BLACK,
             border_color=ft.Colors.GREY_400
         )
+
+        def on_step_blur(e):
+            auto_save_step_as_template(
+                name_field.value,
+                description_field.value,
+                hours_field.value
+            )
+
+        name_field.on_blur = on_step_blur
+        description_field.on_blur = on_step_blur
+        hours_field.on_blur = on_step_blur
 
         # 🔹 Epic removido da UI
         type_dropdown = ft.Dropdown(
@@ -220,93 +296,230 @@ def main_view(page: ft.Page, manager: ProjectManager):
         page.update()
 
     # ---------- Templates ----------
+
+    template_search = ft.TextField(
+        hint_text="Search template...",
+        prefix_icon=ft.Icons.SEARCH,
+        color=ft.Colors.BLACK
+    )
+
     templates_column = ft.Column(spacing=8)
 
-    def refresh_templates():
-        """Refresh the template list UI from the in-memory templates list."""
-        templates_column.controls.clear()
-        for t in templates:
-            name_text = ft.Text(t.get('name', ''), size=14, color=ft.Colors.BLACK, expand=True)
-            hours_text = ft.Text(f"{t.get('hours', '0')}h", size=14, color=ft.Colors.GREY_700, weight=ft.FontWeight.BOLD)
+    def add_template_dialog(e):
+        """Open dialog to create a new template.
 
-            def on_add_steps(e, temp=t):
-                add_step(temp["name"], temp.get("description", ""), temp["hours"])
-                success_add_dlg = ft.AlertDialog(
+        Templates allow users to save reusable step configurations with:
+        - Name: Template identifier
+        - Description: Optional details about what the step entails
+        - Hours: Default estimated hours for this step type
+
+        Once created, templates can be added to projects and edited.
+        """
+        name_input = dialog_textfield(label="Template name")
+        description_input = dialog_textfield(
+            label="Description (optional)",
+            multiline=True,
+            min_lines=2
+        )
+        hours_input = dialog_textfield(label="Hours", value="0")
+
+        def save_template(ev, dlg=None):
+            name = (name_input.value or "").strip()
+            if not name:
+                dlg = ft.AlertDialog(
                     modal=True,
-                    title=ft.Text("Added", color=ft.Colors.GREEN_700),
-                    content=ft.Text(f"Template '{temp['name']}' added to steps!"),
-                    actions=[ft.TextButton("OK", on_click=lambda e: page.close(success_add_dlg))],
-                    actions_alignment=ft.MainAxisAlignment.END,
+                    bgcolor=DIALOG_BG,
+                    title=dialog_text("Error"),
+                    content=dialog_text("Template name cannot be empty."),
+                    actions=[dialog_button("OK", lambda e: page.close(dlg))]
                 )
-                page.open(success_add_dlg)
-                page.update()
+                page.open(dlg)
+                return
 
-            add_steps_btn = ft.IconButton(icon=ft.Icons.ADD_CIRCLE, icon_color=ft.Colors.GREEN_600, tooltip="Add to steps", on_click=lambda e, temp=t: on_add_steps(e, temp))
+            templates.append({
+                "name": name,
+                "description": (description_input.value or "").strip(),
+                "hours": (hours_input.value or "0").strip() or "0"
+            })
 
+            save_templates(templates)
+            refresh_templates()
+            page.close(dlg)
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor=DIALOG_BG,
+            title=dialog_text("New Template"),
+            content=ft.Column(
+                [name_input, description_input, hours_input],
+                tight=True,
+                spacing=10
+            ),
+            actions=[
+                dialog_button("Save", save_template),
+                dialog_button("Cancel", lambda e: page.close(dlg))
+            ]
+        )
+        page.open(dlg)
+
+    def refresh_templates():
+        """Refresh the templates UI from the loaded templates list.
+
+        Each template displays:
+        - Name: Template title
+        - Hours: Estimated hours (shown in bold)
+        - Buttons: Add to steps, Edit, Delete
+
+        Templates are filtered based on the search field.
+        Each template stores an optional description that is applied
+        when added to steps.
+        """
+        templates_column.controls.clear()
+        search = (template_search.value or "").lower()
+
+        for t in templates[:]:  # cópia segura
+            if search and search not in t.get("name", "").lower():
+                continue
+
+            name_text = ft.Text(
+                t.get("name", ""),
+                size=14,
+                color=ft.Colors.BLACK,
+                expand=True
+            )
+
+            hours_text = ft.Text(
+                f"{t.get('hours', '0')}h",
+                size=14,
+                color=ft.Colors.GREY_700,
+                weight=ft.FontWeight.BOLD
+            )
+
+            # ---------- ADD TO STEPS ----------
+            def on_add_steps(e, temp=t):
+                add_step(
+                    temp["name"],
+                    temp.get("description", ""),
+                    temp.get("hours", "0")
+                )
+
+                dlg = ft.AlertDialog(
+                    modal=True,
+                    bgcolor=DIALOG_BG,
+                    title=dialog_text("Added", color=ft.Colors.GREEN_400),
+                    content=dialog_text(
+                        f"Template '{temp['name']}' added to steps!"
+                    ),
+                    actions=[
+                        dialog_button("OK", lambda e: page.close(dlg))
+                    ],
+                )
+                page.open(dlg)
+                page.run_task(auto_close_dialog, page, dlg, 0.5)
+
+            add_steps_btn = ft.IconButton(
+                icon=ft.Icons.ADD_CIRCLE,
+                icon_color=ft.Colors.GREEN_600,
+                tooltip="Add to steps",
+                on_click=on_add_steps
+            )
+
+            # ---------- EDIT ----------
             def on_edit_template(e, temp=t):
-                name_input = ft.TextField(label="Template name", value=temp["name"])
-                description_input = ft.TextField(label="Description (optional)", value=temp.get("description", ""), multiline=True, min_lines=2)
-                hours_input = ft.TextField(label="Hours", value=str(temp.get("hours", "0")))
+                name_input = dialog_textfield(
+                    label="Template name",
+                    value=temp["name"]
+                )
+                description_input = dialog_textfield(
+                    label="Description (optional)",
+                    value=temp.get("description", ""),
+                    multiline=True,
+                    min_lines=2
+                )
+                hours_input = dialog_textfield(
+                    label="Hours",
+                    value=str(temp.get("hours", "0"))
+                )
 
                 def save_edit(ev):
-                    temp["name"] = name_input.value
-                    temp["description"] = description_input.value
-                    temp["hours"] = hours_input.value
+                    temp["name"] = (name_input.value or "").strip()
+                    temp["description"] = (description_input.value or "").strip()
+                    temp["hours"] = (hours_input.value or "0").strip() or "0"
+
                     save_templates(templates)
                     refresh_templates()
                     page.close(edit_dlg)
-                    success_edit_dlg = ft.AlertDialog(
-                        modal=True,
-                        title=ft.Text("Success", color=ft.Colors.GREEN_700),
-                        content=ft.Text("Template updated successfully!"),
-                        actions=[ft.TextButton("OK", on_click=lambda e: page.close(success_edit_dlg))],
-                        actions_alignment=ft.MainAxisAlignment.END,
-                    )
-                    page.run_task(auto_close_dialog, page, success_edit_dlg, 0.5)
-                    page.open(success_edit_dlg)
 
                 edit_dlg = ft.AlertDialog(
                     modal=True,
-                    title=ft.Text("Edit Template"),
-                    content=ft.Column([name_input, description_input, hours_input], tight=True, spacing=10),
-                    actions=[ft.TextButton("Save", on_click=save_edit), ft.TextButton("Cancel", on_click=lambda _: page.close(edit_dlg))],
-                    actions_alignment=ft.MainAxisAlignment.END,
+                    bgcolor=DIALOG_BG,
+                    title=dialog_text("Edit Template"),
+                    content=ft.Column(
+                        [name_input, description_input, hours_input],
+                        tight=True,
+                        spacing=10
+                    ),
+                    actions=[
+                        dialog_button("Save", save_edit),
+                        dialog_button(
+                            "Cancel",
+                            lambda _: page.close(edit_dlg)
+                        )
+                    ],
                 )
                 page.open(edit_dlg)
 
-            edit_btn = ft.IconButton(icon=ft.Icons.EDIT, icon_color=ft.Colors.ORANGE_400, tooltip="Edit template", on_click=lambda e, temp=t: on_edit_template(e, temp))
+            edit_btn = ft.IconButton(
+                icon=ft.Icons.EDIT,
+                icon_color=ft.Colors.ORANGE_400,
+                tooltip="Edit template",
+                on_click=on_edit_template
+            )
 
+            # ---------- DELETE ----------
             def on_delete_template(e, temp=t):
                 def confirm_delete(ev):
-                    templates.remove(temp)
-                    save_templates(templates)
-                    refresh_templates()
+                    if temp in templates:  # 🔥 EVITA O ERRO
+                        templates.remove(temp)
+                        save_templates(templates)
+                        refresh_templates()
+
                     page.close(delete_dlg)
-                    success_delete_dlg = ft.AlertDialog(
-                        modal=True,
-                        title=ft.Text("Deleted", color=ft.Colors.GREEN_700),
-                        content=ft.Text("Template deleted successfully!"),
-                        actions=[ft.TextButton("OK", on_click=lambda e: page.close(success_delete_dlg))],
-                        actions_alignment=ft.MainAxisAlignment.END,
-                    )
-                    page.open(success_delete_dlg)
-                    page.update()
-                    page.run_task(auto_close_dialog, page, success_delete_dlg, 0.5)
 
                 delete_dlg = ft.AlertDialog(
                     modal=True,
-                    title=ft.Text("Confirm Deletion"),
-                    content=ft.Text(f"Delete template '{temp['name']}'?"),
-                    actions=[ft.TextButton("Delete", on_click=confirm_delete), ft.TextButton("Cancel", on_click=lambda _: page.close(delete_dlg))],
-                    actions_alignment=ft.MainAxisAlignment.END,
+                    bgcolor=DIALOG_BG,
+                    title=dialog_text("Confirm Deletion"),
+                    content=dialog_text(
+                        f"Delete template '{temp['name']}'?"
+                    ),
+                    actions=[
+                        dialog_button("Delete", confirm_delete),
+                        dialog_button(
+                            "Cancel",
+                            lambda _: page.close(delete_dlg)
+                        )
+                    ],
                 )
                 page.open(delete_dlg)
 
-            delete_btn = ft.IconButton(icon=ft.Icons.DELETE, icon_color=ft.Colors.RED_400, tooltip="Delete template", on_click=lambda e, temp=t: on_delete_template(e, temp))
+            delete_btn = ft.IconButton(
+                icon=ft.Icons.DELETE,
+                icon_color=ft.Colors.RED_400,
+                tooltip="Delete template",
+                on_click=on_delete_template
+            )
 
             row = ft.Container(
                 content=ft.Row(
-                    [name_text, hours_text, ft.Row([add_steps_btn, edit_btn, delete_btn], spacing=0)],
+                    [
+                        name_text,
+                        hours_text,
+                        ft.Row(
+                            [add_steps_btn, edit_btn, delete_btn],
+                            spacing=0
+                        ),
+                    ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
                 padding=8,
@@ -314,34 +527,12 @@ def main_view(page: ft.Page, manager: ProjectManager):
                 border_radius=6,
                 bgcolor=ft.Colors.GREY_50,
             )
+
             templates_column.controls.append(row)
+
         page.update()
 
-    def add_template_dialog(e):
-        """Open a dialog to create a new template and persist it."""
-        name_input = ft.TextField(label="Template name")
-        description_input = ft.TextField(label="Description (optional)", multiline=True, min_lines=2)
-        hours_input = ft.TextField(label="Hours", value="0")
-
-        def save_template(ev):
-            name = (name_input.value or "").strip()
-            if not name:
-                error_dlg = ft.AlertDialog(modal=True, title=ft.Text("Error"), content=ft.Text("Template name cannot be empty!"), actions=[ft.TextButton("OK", on_click=lambda e: page.close(error_dlg))], actions_alignment=ft.MainAxisAlignment.END)
-                page.open(error_dlg)
-                return
-            new_tpl = {"name": name, "description": (description_input.value or "").strip(), "hours": (hours_input.value or "0").strip() or "0"}
-            templates.append(new_tpl)
-            save_templates(templates)
-            refresh_templates()
-            page.close(dlg)
-            success_create_dlg = ft.AlertDialog(modal=True, title=ft.Text("Success", color=ft.Colors.GREEN_700), content=ft.Text(f"Template '{name}' created successfully!"), actions=[ft.TextButton("OK", on_click=lambda e: page.close(success_create_dlg))], actions_alignment=ft.MainAxisAlignment.END)
-            page.open(success_create_dlg)
-            page.update()
-            page.run_task(auto_close_dialog, page, success_create_dlg, 0.5)
-
-        dlg = ft.AlertDialog(modal=True, title=ft.Text("New Template"), content=ft.Column([name_input, description_input, hours_input], tight=True, spacing=10), actions=[ft.TextButton("Save", on_click=save_template), ft.TextButton("Cancel", on_click=lambda _: page.close(dlg))], actions_alignment=ft.MainAxisAlignment.END)
-        page.open(dlg)
-
+    template_search.on_change = lambda e: refresh_templates()
     refresh_templates()
 
     # ---------- Save & PDF ----------
@@ -407,7 +598,7 @@ def main_view(page: ft.Page, manager: ProjectManager):
 
             print("✅ DevOps client created successfully")
 
-            result = devops.criar_estrutura_desde_json(data)
+            result = devops.create_structure_from_json(data)
 
             print(f"✅ Upload successful! Epic #{result['epic']} created")
             print("📌 Work Items created:")
@@ -619,9 +810,8 @@ def main_view(page: ft.Page, manager: ProjectManager):
                 ft.IconButton(icon=ft.Icons.ADD_CIRCLE, icon_color=ft.Colors.BLUE_600, icon_size=24, tooltip="Add template", on_click=add_template_dialog),
             ]),
             ft.Divider(height=1, color=ft.Colors.GREY_300),
+            template_search,
             ft.Container(content=ft.Column([templates_column], scroll=ft.ScrollMode.AUTO), expand=True, padding=8),
-            ft.Divider(height=1, color=ft.Colors.GREY_300),
-            ft.Row([ft.Text("Total:", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK), total_hours_text], spacing=8),
         ], spacing=8, expand=True),
         padding=12,
         border_radius=8,

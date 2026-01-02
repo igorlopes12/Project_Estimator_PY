@@ -56,10 +56,21 @@ class ProjectManager:
 
         Returns:
             A list of project dictionaries. Returns an empty list on error.
+            Handles the case where the file contains a dict instead of a list.
         """
         try:
             with open(self.path, "r", encoding="utf-8") as f:
                 projects = json.load(f)
+
+                # Handle case where file contains a dict instead of a list
+                if isinstance(projects, dict):
+                    logger.warning(f"Projects file contains dict instead of list. Converting to list.")
+                    # If it's a dict, try to extract 'projects' key or return empty list
+                    if "projects" in projects:
+                        projects = projects["projects"]
+                    else:
+                        projects = []
+
                 logger.debug(f"Projects loaded from {self.path}: {len(projects)} items")
                 return projects
         except json.JSONDecodeError as e:
