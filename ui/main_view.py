@@ -25,7 +25,17 @@ DIALOG_BORDER = ft.Colors.GREY_400
 
 
 def dialog_text(value, **kwargs):
-    return ft.Text(value, color=DIALOG_TEXT, **kwargs)
+    """Create dialog text with optional color override.
+
+    Args:
+        value: Text content
+        **kwargs: Additional Text properties, including optional 'color'
+    """
+    # Set default color only if not provided in kwargs
+    if 'color' not in kwargs:
+        kwargs['color'] = DIALOG_TEXT
+
+    return ft.Text(value, **kwargs)
 
 
 def dialog_textfield(**kwargs):
@@ -124,6 +134,16 @@ def main_view(page: ft.Page, manager: ProjectManager):
     total_hours_text = ft.Text("0.0 h", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK)
 
     def auto_save_step_as_template(name, description, hours):
+        """Automatically save a step as a template when the user leaves a field.
+
+        If a template with the same name exists, it updates the existing one.
+        Otherwise, creates a new template.
+
+        Args:
+            name: Template/step name
+            description: Optional description
+            hours: Estimated hours as string
+        """
         name = (name or "").strip()
         if not name:
             return
@@ -172,6 +192,7 @@ def main_view(page: ft.Page, manager: ProjectManager):
         - parent: Parent task reference for hierarchical organization
 
         Steps are auto-saved as templates when the user leaves a field.
+        Users can optionally add or edit the description by clicking the description button.
         """
         name_field = ft.TextField(
             value=name,
@@ -188,7 +209,8 @@ def main_view(page: ft.Page, manager: ProjectManager):
             color=ft.Colors.BLACK,
             border_color=ft.Colors.GREY_400,
             multiline=True,
-            min_lines=2
+            min_lines=2,
+            visible=False  # Hidden by default; shown only if user clicks description button
         )
 
         hours_field = ft.TextField(
@@ -210,7 +232,7 @@ def main_view(page: ft.Page, manager: ProjectManager):
         description_field.on_blur = on_step_blur
         hours_field.on_blur = on_step_blur
 
-        # 🔹 Epic removido da UI
+        # Note: Epic type was removed from the UI
         type_dropdown = ft.Dropdown(
             width=140,
             value=step_type,
@@ -261,11 +283,24 @@ def main_view(page: ft.Page, manager: ProjectManager):
             update_total_hours()
             page.update()
 
+        def toggle_description(e):
+            """Show/hide the description field"""
+            description_field.visible = not description_field.visible
+            page.update()
+
         remove_btn = ft.IconButton(
             ft.Icons.REMOVE_CIRCLE_OUTLINE,
             icon_color=ft.Colors.RED_400,
             tooltip="Remove step",
             on_click=remove_step
+        )
+
+        # Button to toggle description visibility
+        description_btn = ft.IconButton(
+            ft.Icons.DESCRIPTION_OUTLINED,
+            icon_color=ft.Colors.GREY_600,
+            tooltip="Add/edit description",
+            on_click=toggle_description
         )
 
         step_row = ft.Row(
@@ -274,6 +309,7 @@ def main_view(page: ft.Page, manager: ProjectManager):
                 type_dropdown,
                 parent_dropdown,
                 hours_field,
+                description_btn,
                 remove_btn
             ],
             spacing=8
@@ -300,7 +336,7 @@ def main_view(page: ft.Page, manager: ProjectManager):
     template_search = ft.TextField(
         hint_text="Search template...",
         prefix_icon=ft.Icons.SEARCH,
-        color=ft.Colors.BLACK
+        color=ft.Colors.BLACK,
     )
 
     templates_column = ft.Column(spacing=8)
@@ -377,7 +413,7 @@ def main_view(page: ft.Page, manager: ProjectManager):
         templates_column.controls.clear()
         search = (template_search.value or "").lower()
 
-        for t in templates[:]:  # cópia segura
+        for t in templates[:]:  # Safe copy to avoid iteration issues
             if search and search not in t.get("name", "").lower():
                 continue
 
@@ -479,7 +515,7 @@ def main_view(page: ft.Page, manager: ProjectManager):
             # ---------- DELETE ----------
             def on_delete_template(e, temp=t):
                 def confirm_delete(ev):
-                    if temp in templates:  # 🔥 EVITA O ERRO
+                    if temp in templates:  # Check if template exists before removing
                         templates.remove(temp)
                         save_templates(templates)
                         refresh_templates()
